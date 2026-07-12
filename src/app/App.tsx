@@ -30,14 +30,24 @@ import {
   Briefcase,
   Layers,
   ChevronRightSquare,
-  AlertCircle
+  AlertCircle,
+  Menu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 // Firebase & Service Imports
-import { APP_CONFIG } from './firebase';
+import { APP_CONFIG, auth, db } from './firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  updateProfile,
+  signOut,
+  User 
+} from 'firebase/auth';
 import { 
   subscribeAssets, 
   subscribeBookings, 
@@ -101,10 +111,51 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'administration', label: 'Administration', icon: ShieldCheck },
   { id: 'settings', label: 'Settings', icon: HelpCircle },
 ];
-
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [currentUserRole, setCurrentUserRole] = useState<string>('employee');
+  const [currentUserDept, setCurrentUserDept] = useState<string>('IT');
+  const [currentUserJobTitle, setCurrentUserJobTitle] = useState<string>('Staff Member');
+
+  // Listen to Firebase Auth state
+  useEffect(() => {
+    if (!auth) {
+      setAuthLoading(false);
+      return;
+    }
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
+      if (firebaseUser) {
+        if (db) {
+          try {
+            const q = query(collection(db, 'employees'), where('email', '==', firebaseUser.email));
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+              const empDoc = snap.docs[0].data();
+              setCurrentUserRole(empDoc.accessLevel || 'employee');
+              setCurrentUserDept(empDoc.department || 'IT');
+              setCurrentUserJobTitle(empDoc.role || 'Staff Member');
+            } else {
+              // Fallback default: if user registered without employee list or is admin
+              setCurrentUserRole('admin');
+              setCurrentUserDept('IT');
+              setCurrentUserJobTitle('IT Administrator');
+            }
+          } catch (err) {
+            console.error("Error fetching employee details:", err);
+          }
+        }
+      }
+      setAuthLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
   const [collapsed, setCollapsed] = useState(false);
   const [activeItem, setActiveItem] = useState('dashboard');
+  const [activeRoleTab, setActiveRoleTab] = useState<'admin' | 'manager' | 'tech' | 'employee'>('admin');
   
   // Real-time states
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -290,6 +341,27 @@ export default function App() {
     setShowAddDeptModal(false);
   };
 
+  // Filter navigation items by role hierarchy
+  const allowedNavItems = NAV_ITEMS.filter(item => {
+    const role = currentUserRole.toLowerCase();
+    if (role.includes('admin') || role.includes('architect')) return true;
+    if (role.includes('manager')) {
+      return item.id !== 'logs' && item.id !== 'administration';
+    }
+    if (role.includes('tech') || role.includes('technician')) {
+      return ['dashboard', 'maintenance', 'logs', 'settings'].includes(item.id);
+    }
+    return ['dashboard', 'booking', 'maintenance', 'settings'].includes(item.id);
+  });
+
+  // Guard routing access levels
+  useEffect(() => {
+    const allowedIds = allowedNavItems.map(item => item.id);
+    if (allowedIds.length > 0 && !allowedIds.includes(activeItem)) {
+      setActiveItem('dashboard');
+    }
+  }, [activeItem, currentUserRole]);
+
   // Render contents of each tab
   const renderContent = () => {
     switch (activeItem) {
@@ -298,13 +370,19 @@ export default function App() {
         const availCount = assets.filter(a => a.status === 'Available').length;
         const allocCount = assets.filter(a => a.status === 'Allocated').length;
         const maintCount = tickets.filter(t => t.status !== 'resolved' && t.status !== 'closed').length;
-        const activeBookingsCount = bookings.filter(b => b.date === '2026-07-12').length;
+        
+        const todayStr = new Date().toISOString().split('T')[0];
+        const activeBookingsCount = bookings.filter(b => b.date === todayStr).length;
         const pendingTransfersCount = transfers.filter(t => t.status === 'Pending Approval').length;
+        const upcomingReturnsCount = 0;
+
+        const healthyAssets = assets.filter(a => a.health >= 70).length;
+        const healthScore = assets.length > 0 ? Math.round((healthyAssets / assets.length) * 100) : 100;
 
         // Health Gauge calculations
         const radiusGauge = 50;
         const circGauge = 2 * Math.PI * radiusGauge;
-        const offsetGauge = circGauge - (89 / 100) * circGauge;
+        const offsetGauge = circGauge - (healthScore / 100) * circGauge;
 
         return (
           <div className="p-8 space-y-8 animate-in fade-in duration-500 text-left">
@@ -312,7 +390,9 @@ export default function App() {
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white dark:bg-slate-900 border border-border dark:border-slate-800 rounded-[28px] p-8 shadow-sm">
               <div>
                 <span className="px-2.5 py-1 bg-primary/10 text-primary text-[10px] font-black uppercase tracking-wider rounded-lg">Operational Command</span>
-                <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white mt-2">Good Morning, Meeket</h1>
+                <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white mt-2">
+                  Good Morning, {user?.displayName || user?.email?.split('@')[0] || 'User'}
+                </h1>
                 <p className="text-muted-foreground text-sm mt-1 leading-relaxed">
                   Welcome back. Here's today's operational overview of your enterprise assets and resources.
                 </p>
@@ -339,7 +419,7 @@ export default function App() {
               <KPICard title="Assets Allocated" value={allocCount} trend={+14} icon={Users} subtitle="Active handovers" color="text-blue-600 bg-blue-50 dark:bg-blue-950/20" sparklinePoints="0 20, 10 15, 20 18, 30 12, 40 8, 50 14, 60 10, 70 8, 80 5, 90 2" />
               <KPICard title="Maintenance Today" value={maintCount} trend={-3} icon={Settings} subtitle="Active tickets" color="text-orange-600 bg-orange-50 dark:bg-orange-950/20" sparklinePoints="0 5, 10 8, 20 2, 30 15, 40 12, 50 20, 60 14, 70 18, 80 22, 90 19" />
               <KPICard title="Active Bookings" value={activeBookingsCount} trend={+12} icon={Calendar} subtitle="For today" color="text-indigo-600 bg-indigo-50 dark:bg-indigo-950/20" sparklinePoints="0 18, 10 20, 20 15, 30 19, 40 10, 50 12, 60 5, 70 10, 80 4, 90 6" />
-              <KPICard title="Upcoming Returns" value={3} trend={0} icon={History} subtitle="In next 48h" color="text-purple-600 bg-purple-50 dark:bg-purple-950/20" sparklinePoints="0 10, 10 12, 20 8, 30 14, 40 10, 50 12, 60 10, 70 14, 80 10, 90 12" />
+              <KPICard title="Upcoming Returns" value={upcomingReturnsCount} trend={0} icon={History} subtitle="In next 48h" color="text-purple-600 bg-purple-50 dark:bg-purple-950/20" sparklinePoints="0 10, 10 12, 20 8, 30 14, 40 10, 50 12, 60 10, 70 14, 80 10, 90 12" />
               <KPICard title="Pending Transfers" value={pendingTransfersCount} trend={+2} icon={Layers} subtitle="Awaiting approvals" color="text-amber-600 bg-amber-50 dark:bg-amber-950/20" sparklinePoints="0 2, 10 5, 20 4, 30 12, 40 10, 50 18, 60 15, 70 20, 80 18, 90 22" />
             </div>
 
@@ -356,7 +436,7 @@ export default function App() {
                   <svg className="w-36 h-36 transform -rotate-90">
                     <circle cx="72" cy="72" r={radiusGauge} stroke="#e2e8f0" strokeWidth="12" fill="transparent" className="dark:stroke-slate-800" />
                     <motion.circle 
-                      cx="72" cy="72" r={radiusGauge} stroke="#16A34A" strokeWidth="12" fill="transparent"
+                      cx="72" cy="72" r={radiusGauge} stroke={healthScore >= 80 ? "#16A34A" : healthScore >= 50 ? "#F97316" : "#EF4444"} strokeWidth="12" fill="transparent"
                       strokeDasharray={circGauge}
                       initial={{ strokeDashoffset: circGauge }}
                       animate={{ strokeDashoffset: offsetGauge }}
@@ -364,8 +444,10 @@ export default function App() {
                     />
                   </svg>
                   <div className="absolute flex flex-col items-center">
-                    <span className="text-4xl font-black text-slate-800 dark:text-white leading-none">89%</span>
-                    <span className="text-[10px] text-green-600 font-bold uppercase tracking-wider mt-1">Healthy</span>
+                    <span className="text-4xl font-black text-slate-800 dark:text-white leading-none">{healthScore}%</span>
+                    <span className={cn("text-[10px] font-bold uppercase tracking-wider mt-1", healthScore >= 80 ? "text-green-600" : healthScore >= 50 ? "text-orange-500" : "text-red-500")}>
+                      {healthScore >= 80 ? 'Healthy' : healthScore >= 50 ? 'Warning' : 'Critical'}
+                    </span>
                   </div>
                 </div>
 
@@ -394,6 +476,103 @@ export default function App() {
                       <span>{insight.text}</span>
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Role Hierarchy & Permissions Matrix */}
+            <div className="bg-white dark:bg-slate-900 border border-border dark:border-slate-800 rounded-[32px] p-8 shadow-sm space-y-6">
+              <div>
+                <h3 className="font-extrabold text-sm uppercase tracking-wider text-slate-800 dark:text-slate-200">Enterprise Hierarchy & Access Rights</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Toggle each role below to see authorized application sections and operations</p>
+              </div>
+
+              {/* Tabs list */}
+              <div className="flex flex-wrap gap-2.5 border-b border-border dark:border-slate-800 pb-4">
+                {[
+                  { id: 'admin', label: 'IT Administrator', icon: ShieldCheck, color: 'text-[#714B67] bg-[#714B67]/10' },
+                  { id: 'manager', label: 'Asset Manager', icon: Briefcase, color: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/20' },
+                  { id: 'tech', label: 'Service Technician', icon: Settings, color: 'text-orange-600 bg-orange-50 dark:bg-orange-950/20' },
+                  { id: 'employee', label: 'Standard Employee', icon: Users, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/20' }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveRoleTab(tab.id as any)}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold uppercase transition-all",
+                      activeRoleTab === tab.id 
+                        ? "bg-slate-900 dark:bg-slate-800 text-white shadow-md cursor-pointer" 
+                        : "bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                    )}
+                  >
+                    <tab.icon className="w-3.5 h-3.5" />
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Active Tab Panel */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs text-left">
+                {/* Column 1: Role Overview */}
+                <div className="space-y-3 md:col-span-1">
+                  <h4 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-[11px]">Role Summary</h4>
+                  <p className="text-muted-foreground dark:text-slate-400 leading-relaxed font-medium">
+                    {activeRoleTab === 'admin' && "IT Administrators hold root authorization. They manage users, configure database parameters, and oversee directory data with full read/write access."}
+                    {activeRoleTab === 'manager' && "Asset Managers handle the inventory operations. They manage catalog details, initiate department transfer processes, verify allocations, and accept returned hardware."}
+                    {activeRoleTab === 'tech' && "Service Technicians manage repair cycles. They process maintenance tickets, move tickets along Kanban stages, record resolution metrics, and restore asset health scores."}
+                    {activeRoleTab === 'employee' && "Standard Employees represent hardware end-users. They can inspect their active devices, review personal warranty limits, book shared meeting rooms/vehicles, and log fault alerts."}
+                  </p>
+                </div>
+
+                {/* Column 2: Allowed App Sections */}
+                <div className="space-y-3 md:col-span-1">
+                  <h4 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-[11px]">Allowed Sections</h4>
+                  <div className="grid grid-cols-2 gap-2 font-bold">
+                    {[
+                      { name: 'Dashboard', roles: ['admin', 'manager', 'tech', 'employee'] },
+                      { name: 'Assets', roles: ['admin', 'manager'] },
+                      { name: 'Asset Allocation', roles: ['admin', 'manager'] },
+                      { name: 'Resource Booking', roles: ['admin', 'manager', 'employee'] },
+                      { name: 'Maintenance', roles: ['admin', 'manager', 'tech', 'employee'] },
+                      { name: 'Audit', roles: ['admin', 'manager'] },
+                      { name: 'Reports', roles: ['admin', 'manager'] },
+                      { name: 'Logs', roles: ['admin'] },
+                      { name: 'Administration', roles: ['admin'] }
+                    ].map((section, idx) => {
+                      const isAllowed = section.roles.includes(activeRoleTab);
+                      return (
+                        <div key={idx} className={cn("p-2 border rounded-xl flex items-center gap-1.5", isAllowed ? "bg-emerald-50/50 border-emerald-100 dark:bg-emerald-950/10 dark:border-emerald-900/30 text-emerald-800 dark:text-emerald-300" : "bg-slate-50 dark:bg-slate-800/20 border-slate-100 dark:border-slate-800/40 opacity-40 text-slate-400 dark:text-slate-600")}>
+                          <CheckCircle className={cn("w-3.5 h-3.5 shrink-0", isAllowed ? "text-emerald-600" : "text-slate-300 dark:text-slate-700")} />
+                          <span>{section.name}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Column 3: Permitted Actions */}
+                <div className="space-y-3 md:col-span-1">
+                  <h4 className="font-black text-slate-800 dark:text-white uppercase tracking-wider text-[11px]">Authorized Actions</h4>
+                  <ul className="space-y-2">
+                    {[
+                      { action: 'Create/Delete/Modify Assets', roles: ['admin'] },
+                      { action: 'Database Seeds & Configs', roles: ['admin'] },
+                      { action: 'Approve Department Transfers', roles: ['admin', 'manager'] },
+                      { action: 'Allocate Hardware to Staff', roles: ['admin', 'manager'] },
+                      { action: 'Update Repair Kanban Stages', roles: ['admin', 'manager', 'tech'] },
+                      { action: 'Self-Certify/Acknowledge Audits', roles: ['admin', 'manager', 'employee'] },
+                      { action: 'Book Meeting Rooms & Devices', roles: ['admin', 'manager', 'employee'] },
+                      { action: 'Report Hardware Malfunctions', roles: ['admin', 'manager', 'tech', 'employee'] }
+                    ].map((act, idx) => {
+                      const isAllowed = act.roles.includes(activeRoleTab);
+                      return (
+                        <li key={idx} className="flex items-center gap-2 font-semibold">
+                          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", isAllowed ? "bg-primary" : "bg-slate-300 dark:bg-slate-700")} />
+                          <span className={isAllowed ? "text-slate-800 dark:text-slate-200" : "text-muted-foreground/60 dark:text-slate-600 line-through"}>{act.action}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
               </div>
             </div>
@@ -429,8 +608,8 @@ export default function App() {
               </button>
             </div>
             
-            <div className="bg-white rounded-[24px] border border-border overflow-hidden shadow-sm">
-              <table className="w-full text-left border-collapse">
+            <div className="bg-white rounded-[24px] border border-border overflow-x-auto shadow-sm">
+              <table className="w-full min-w-[600px] text-left border-collapse">
                 <thead>
                   <tr className="bg-muted/50 border-b border-border">
                     <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-muted-foreground">Employee</th>
@@ -708,13 +887,33 @@ export default function App() {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white font-inter">
+        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+        <p className="mt-4 text-xs font-black uppercase tracking-widest text-slate-400">Loading Operations Center...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthScreen onUserLoggedIn={(role, dept) => {
+      setCurrentUserRole(role);
+      setCurrentUserDept(dept);
+      if (role === 'admin') setCurrentUserJobTitle('IT Administrator');
+      else if (role === 'manager') setCurrentUserJobTitle('Asset Manager');
+      else if (role === 'tech') setCurrentUserJobTitle('Service Technician');
+      else setCurrentUserJobTitle('Staff Member');
+    }} />;
+  }
+
   return (
     <div className="flex min-h-screen bg-background font-inter selection:bg-primary selection:text-white">
       {/* Sidebar Layout */}
       <motion.aside
         initial={false}
         animate={{ width: collapsed ? 80 : 280 }}
-        className="h-screen bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col sticky top-0 z-50 overflow-hidden shrink-0"
+        className="h-screen bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col sticky top-0 z-50 overflow-hidden shrink-0 hidden lg:flex"
       >
         <div className="p-6 flex items-center justify-between mb-4">
           <AnimatePresence mode="wait">
@@ -740,7 +939,7 @@ export default function App() {
         </div>
 
         <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto scrollbar-hide py-2">
-          {NAV_ITEMS.map((item) => (
+          {allowedNavItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveItem(item.id)}
@@ -778,17 +977,17 @@ export default function App() {
           {!collapsed && (
             <div className="flex items-center justify-between px-2 py-1.5 rounded-xl bg-slate-900 border border-slate-800">
               <div className="flex items-center gap-2">
-                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Alex" alt="" className="w-8 h-8 rounded-full border border-slate-700" />
+                <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.displayName || 'User'}`} alt="" className="w-8 h-8 rounded-full border border-slate-700" />
                 <div className="text-left">
-                  <p className="text-xs font-black text-white leading-none">Alex Sterling</p>
-                  <p className="text-[9px] text-muted-foreground mt-0.5">Admin</p>
+                  <p className="text-xs font-black text-white leading-none truncate max-w-[100px]">{user?.displayName || user?.email?.split('@')[0] || 'User'}</p>
+                  <p className="text-[9px] text-muted-foreground mt-0.5 truncate max-w-[100px]">{user?.email}</p>
                 </div>
               </div>
               <div className="flex gap-1">
                 <button onClick={() => setDarkMode(!darkMode)} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white transition-colors" title="Toggle Theme">
                   <Sparkles className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={() => { if (confirm("Log out?")) window.location.reload(); }} className="p-1 hover:bg-slate-800 rounded text-red-400 hover:text-red-300 transition-colors" title="Logout">
+                <button onClick={() => { if (auth && confirm("Log out?")) signOut(auth); }} className="p-1 hover:bg-slate-800 rounded text-red-400 hover:text-red-300 transition-colors" title="Logout">
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -797,7 +996,7 @@ export default function App() {
 
           {collapsed && (
             <div className="flex flex-col items-center gap-2 py-1 bg-slate-900 border border-slate-800 rounded-xl">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Alex" alt="" className="w-6 h-6 rounded-full" />
+              <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.displayName || 'User'}`} alt="" className="w-6 h-6 rounded-full" />
               <button onClick={() => setDarkMode(!darkMode)} className="p-1 text-slate-400 hover:text-white" title="Toggle Theme">
                 <Sparkles className="w-3.5 h-3.5" />
               </button>
@@ -822,6 +1021,13 @@ export default function App() {
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden dark:bg-slate-950">
         {/* Top Navbar */}
         <header className="h-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-border dark:border-slate-800 px-8 flex items-center justify-between sticky top-0 z-40">
+          <button 
+            onClick={() => setShowMobileMenu(true)} 
+            className="p-2 mr-2 text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-all lg:hidden"
+            title="Open Menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
           <div className="flex items-center gap-6 flex-1">
             {/* Organization Switcher & Breadcrumbs */}
             <div className="flex items-center gap-3">
@@ -912,14 +1118,14 @@ export default function App() {
             {/* User profile details */}
             <div className="flex items-center gap-2.5 pl-1.5">
               <div className="text-right hidden xl:block">
-                <p className="text-xs font-black text-slate-800 dark:text-slate-200 leading-none">Alex Sterling</p>
-                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1">IT Architect</p>
+                <p className="text-xs font-black text-slate-800 dark:text-slate-200 leading-none">{user?.displayName || user?.email?.split('@')[0] || 'User'}</p>
+                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1 truncate max-w-[180px]">{currentUserJobTitle} • {currentUserDept}</p>
               </div>
               <motion.div 
                 whileHover={{ scale: 1.05 }}
                 className="w-9 h-9 rounded-xl bg-accent border border-border dark:border-slate-700 shadow-sm flex items-center justify-center overflow-hidden cursor-pointer"
               >
-                 <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Alex" alt="User avatar" />
+                 <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.displayName || 'User'}`} alt="User avatar" />
               </motion.div>
             </div>
           </div>
@@ -1406,6 +1612,81 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* ========================================== */}
+      {/* 📱 MOBILE NAVIGATION DRAWER */}
+      {/* ========================================== */}
+      <AnimatePresence>
+        {showMobileMenu && (
+          <div className="fixed inset-0 z-50 flex lg:hidden">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowMobileMenu(false)}
+              className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 20 }}
+              className="relative w-full max-w-xs bg-sidebar text-sidebar-foreground h-full shadow-2xl flex flex-col p-6 border-r border-sidebar-border"
+            >
+              <div className="flex justify-between items-center pb-4 border-b border-sidebar-border">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-primary rounded-xl flex items-center justify-center shadow-lg">
+                    <Package className="w-4.5 h-4.5 text-white" />
+                  </div>
+                  <span className="font-black text-lg tracking-tighter uppercase italic">{APP_CONFIG.appName}</span>
+                </div>
+                <button 
+                  onClick={() => setShowMobileMenu(false)}
+                  className="p-1 hover:bg-sidebar-accent rounded-lg text-sidebar-foreground/60"
+                >
+                  <Plus className="w-5 h-5 rotate-45" />
+                </button>
+              </div>
+
+              <nav className="flex-1 space-y-1.5 overflow-y-auto py-4">
+                {allowedNavItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveItem(item.id);
+                      setShowMobileMenu(false);
+                    }}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl transition-all duration-300 relative text-left",
+                      activeItem === item.id 
+                        ? "bg-primary text-primary-foreground shadow-xl shadow-primary/25" 
+                        : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                    )}
+                  >
+                    <item.icon className="w-5 h-5 shrink-0" />
+                    <span className="font-bold text-sm tracking-tight">{item.label}</span>
+                  </button>
+                ))}
+              </nav>
+
+              <div className="pt-4 border-t border-sidebar-border flex flex-col gap-2">
+                <div className="flex items-center justify-between px-2 py-1.5 rounded-xl bg-slate-900 border border-slate-800">
+                  <div className="flex items-center gap-2 text-left">
+                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.displayName || 'User'}`} alt="" className="w-8 h-8 rounded-full border border-slate-700" />
+                    <div className="max-w-[120px]">
+                      <p className="text-xs font-black text-white leading-none truncate">{user?.displayName || user?.email?.split('@')[0] || 'User'}</p>
+                      <p className="text-[9px] text-muted-foreground mt-0.5 truncate">{user?.email}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { if (auth && confirm("Log out?")) signOut(auth); }} className="p-2 hover:bg-slate-800 rounded-lg text-red-400 hover:text-red-300 transition-colors" title="Logout">
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1440,3 +1721,213 @@ const KPICard = ({ title, value, trend, icon: Icon, color, subtitle }: any) => (
     </div>
   </motion.div>
 );
+
+function AuthScreen({ onUserLoggedIn }: { onUserLoggedIn?: (role: string, dept: string) => void }) {
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [department, setDepartment] = useState('IT');
+  const [role, setRole] = useState('Staff Architect');
+  const [accessLevel, setAccessLevel] = useState<'admin' | 'manager' | 'tech' | 'employee'>('employee');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    if (!auth) {
+      setError('Firebase Auth is not initialized.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      if (isSignUp) {
+        const res = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(res.user, { displayName: fullName });
+        try {
+          await addEmployee({
+            name: fullName,
+            email: email,
+            department: department,
+            role: role,
+            accessLevel: accessLevel,
+            status: 'Active',
+            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${fullName}`
+          });
+          if (onUserLoggedIn) {
+            onUserLoggedIn(accessLevel, department);
+          }
+        } catch (employeeError) {
+          console.error("Failed to seed user as employee in database:", employeeError);
+        }
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'An error occurred during authentication.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden font-inter">
+      {/* Dynamic gradient background decorations */}
+      <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-[#714B67]/20 blur-[120px] pointer-events-none"></div>
+      <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] rounded-full bg-violet-600/10 blur-[120px] pointer-events-none"></div>
+
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="w-full max-w-md bg-slate-900/50 backdrop-blur-xl border border-slate-800 p-8 rounded-[32px] shadow-2xl flex flex-col relative z-10 text-left"
+      >
+        <div className="flex items-center gap-3 mb-8 justify-center">
+          <div className="w-10 h-10 bg-primary rounded-2xl flex items-center justify-center shadow-lg shadow-primary/20 animate-pulse">
+            <Package className="w-5 h-5 text-white" />
+          </div>
+          <span className="font-black text-2xl tracking-tighter text-white uppercase italic">AssetFlow</span>
+        </div>
+
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-black text-white tracking-tight">
+            {isSignUp ? 'Create Enterprise Account' : 'Welcome Back'}
+          </h2>
+          <p className="text-xs text-slate-400 mt-1.5 font-medium leading-relaxed">
+            {isSignUp 
+              ? 'Register to manage organization assets, allocations and bookings.' 
+              : 'Sign in to access your operations control center.'}
+          </p>
+        </div>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-950/30 border border-red-900/50 rounded-2xl flex items-start gap-2.5 text-xs text-red-400 font-semibold leading-relaxed">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {isSignUp && (
+            <>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Full Name</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full bg-slate-800/40 border border-slate-700/60 rounded-xl px-4 py-3 mt-1.5 text-white text-sm font-medium outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent transition-all"
+                  placeholder="John Doe"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Department</label>
+                  <select 
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    className="w-full bg-slate-800/40 border border-slate-700/60 rounded-xl px-3 py-3 mt-1.5 text-white text-xs font-bold outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent transition-all"
+                  >
+                    <option value="IT">IT</option>
+                    <option value="Product Design">Product Design</option>
+                    <option value="QA Testing">QA Testing</option>
+                    <option value="Operations">Operations</option>
+                    <option value="Marketing">Marketing</option>
+                    <option value="Logistics">Logistics</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Job Title</label>
+                  <input 
+                    type="text" 
+                    required 
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="w-full bg-slate-800/40 border border-slate-700/60 rounded-xl px-4 py-3 mt-1.5 text-white text-sm font-medium outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent transition-all"
+                    placeholder="E.g. QA Engineer"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Access Role Level</label>
+                <select 
+                  value={accessLevel}
+                  onChange={(e) => setAccessLevel(e.target.value as any)}
+                  className="w-full bg-slate-800/40 border border-slate-700/60 rounded-xl px-3 py-3 mt-1.5 text-white text-xs font-bold outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent transition-all"
+                >
+                  <option value="admin">IT Administrator (Full Access)</option>
+                  <option value="manager">Asset Manager (Operational Access)</option>
+                  <option value="tech">Service Technician (Maintenance Access)</option>
+                  <option value="employee">Standard Employee (Basic Access)</option>
+                </select>
+              </div>
+
+              <div className="p-3 bg-white/5 border border-white/10 rounded-2xl text-[10px] leading-relaxed text-slate-300 font-semibold space-y-1">
+                <span className="font-bold text-primary block uppercase tracking-wider text-[9px] mb-1">Scope of Access Authorization:</span>
+                {accessLevel === 'admin' && "• Admin sees all directories. • Complete database configuration control. • Permanent transaction log auditing."}
+                {accessLevel === 'manager' && "• Register hardware details. • Allocate and return devices. • Authorize department hardware transfers."}
+                {accessLevel === 'tech' && "• Kanban board updates. • Technician ticket assignment. • Health parameter recovery calculations."}
+                {accessLevel === 'employee' && "• View personal items. • Room and shared device calendar bookings. • Maintenance malfunction logs."}
+              </div>
+            </>
+          )}
+
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Email Address</label>
+            <input 
+              type="email" 
+              required 
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-slate-800/40 border border-slate-700/60 rounded-xl px-4 py-3 mt-1.5 text-white text-sm font-medium outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent transition-all"
+              placeholder="name@company.com"
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Password</label>
+            <input 
+              type="password" 
+              required 
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-slate-800/40 border border-slate-700/60 rounded-xl px-4 py-3 mt-1.5 text-white text-sm font-medium outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent transition-all"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={loading}
+            className="w-full py-3.5 bg-primary hover:bg-[#62405B] text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-primary/25 mt-4 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              isSignUp ? 'Create Account' : 'Sign In'
+            )}
+          </button>
+        </form>
+
+        <div className="text-center mt-6">
+          <button 
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setError('');
+            }}
+            className="text-xs text-slate-400 hover:text-white transition-colors"
+          >
+            {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}

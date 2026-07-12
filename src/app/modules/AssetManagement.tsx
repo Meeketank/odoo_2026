@@ -36,6 +36,7 @@ import {
   returnAsset, 
   createMaintenanceTicket, 
   updateAsset,
+  getCurrentUsername,
   Asset, 
   Employee, 
   Department 
@@ -161,7 +162,7 @@ export const AssetManagement = () => {
     if (!emp) return;
 
     try {
-      await allocateAsset(selectedAsset.id, emp.name, emp.department, 'Alex Sterling');
+      await allocateAsset(selectedAsset.id, emp.name, emp.department, getCurrentUsername());
       setShowAllocateForm(false);
       setSelectedEmp('');
     } catch (err: any) {
@@ -183,7 +184,7 @@ export const AssetManagement = () => {
         technician: 'Unassigned',
         description: mDesc,
         cost: 150
-      }, 'Alex Sterling');
+      }, getCurrentUsername());
       setShowMaintenanceForm(false);
       setMDesc('');
     } catch (err: any) {
@@ -195,7 +196,7 @@ export const AssetManagement = () => {
   const handleReturnAsset = async () => {
     if (!selectedAsset) return;
     try {
-      await returnAsset(selectedAsset.id, 'Alex Sterling');
+      await returnAsset(selectedAsset.id, getCurrentUsername());
     } catch (err: any) {
       alert(err.message);
     }
@@ -208,7 +209,7 @@ export const AssetManagement = () => {
       const dateStr = new Date().toISOString().split('T')[0];
       const newTimeline = [
         ...(selectedAsset.lifecycleTimeline || []),
-        { state: 'Retired', date: dateStr, user: 'Alex Sterling', details: 'Asset marked retired from directory' }
+        { state: 'Retired', date: dateStr, user: getCurrentUsername(), details: 'Asset marked retired from directory' }
       ];
       await updateAsset(selectedAsset.id, { 
         status: 'Retired',

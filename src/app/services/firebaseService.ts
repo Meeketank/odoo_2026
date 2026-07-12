@@ -13,7 +13,15 @@ import {
   limit,
   writeBatch
 } from 'firebase/firestore';
-import { db, isFirebaseConfigured } from '../firebase';
+import { db, isFirebaseConfigured, auth } from '../firebase';
+
+export const getCurrentUsername = (): string => {
+  if (!isFirebaseConfigured() || !auth) return 'Guest User';
+  const user = auth.currentUser;
+  if (!user) return 'Guest User';
+  return user.displayName || user.email?.split('@')[0] || 'Authenticated User';
+};
+
 
 // ============================================================================
 // 📊 TYPE DEFINITIONS
@@ -156,17 +164,7 @@ export interface ActivityLog {
 // 💾 INITIAL MOCK SEED DATA (Used for Local Fallback & Firestore First Boot)
 // ============================================================================
 
-const SEED_EMPLOYEES: Employee[] = [
-  { id: 'emp-1', name: 'Sarah Jenkins', email: 's.jenkins@company.com', department: 'Product Design', role: 'Lead Designer', status: 'Active', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah' },
-  { id: 'emp-2', name: 'Mark Chen', email: 'm.chen@company.com', department: 'QA Testing', role: 'Automation QA', status: 'Active', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Mark' },
-  { id: 'emp-3', name: 'John Doe', email: 'j.doe@company.com', department: 'Operations', role: 'Operations Mgr', status: 'Active', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=John' },
-  { id: 'emp-4', name: 'Emma Watson', email: 'e.watson@company.com', department: 'Marketing', role: 'Campaign Lead', status: 'Active', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Emma' },
-  { id: 'emp-5', name: 'Alex Sterling', email: 'a.sterling@company.com', department: 'IT', role: 'IT Lead Architect', status: 'Active', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Alex' },
-  { id: 'emp-6', name: 'Sarah Miller', email: 's.miller@company.com', department: 'IT Support', role: 'Systems Tech', status: 'Active', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Miller' },
-  { id: 'emp-7', name: 'James Wilson', email: 'j.wilson@company.com', department: 'Logistics', role: 'Logistics Coord', status: 'Active', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=James' },
-  { id: 'emp-8', name: 'Mike Ross', email: 'm.ross@company.com', department: 'QA Testing', role: 'QA Associate', status: 'Active', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Mike' }
-];
-
+const SEED_EMPLOYEES: Employee[] = [];
 const SEED_DEPARTMENTS: Department[] = [
   { id: 'dept-1', name: 'Product Design', manager: 'Sarah Jenkins', budget: 120000, efficiencyScore: 96, assetCount: 15 },
   { id: 'dept-2', name: 'QA Testing', manager: 'Mark Chen', budget: 85000, efficiencyScore: 92, assetCount: 12 },
@@ -175,193 +173,15 @@ const SEED_DEPARTMENTS: Department[] = [
   { id: 'dept-5', name: 'IT', manager: 'Alex Sterling', budget: 350000, efficiencyScore: 98, assetCount: 45 },
   { id: 'dept-6', name: 'Logistics', manager: 'James Wilson', budget: 95000, efficiencyScore: 87, assetCount: 14 }
 ];
+const SEED_ASSETS: Asset[] = [];
+const SEED_BOOKINGS: Booking[] = [];
+const SEED_MAINTENANCE: MaintenanceTicket[] = [];
+const SEED_AUDITS: AuditCampaign[] = [];
+const SEED_TRANSFERS: TransferRequest[] = [];
+const SEED_DISCREPANCIES: Discrepancy[] = [];
+const SEED_NOTIFICATIONS: SystemNotification[] = [];
+const SEED_LOGS: ActivityLog[] = [];
 
-const SEED_ASSETS: Asset[] = [
-  {
-    id: '1',
-    name: 'MacBook Pro 16" M3 Max',
-    tag: 'AST-2024-001',
-    serial: 'SN-MX38902KJ',
-    category: 'Computing',
-    status: 'Allocated',
-    department: 'Product Design',
-    employee: 'Sarah Jenkins',
-    health: 98,
-    image: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500&h=300&fit=crop',
-    purchaseDate: '2024-01-12',
-    warrantyExpiry: '2027-01-12',
-    cost: 3499,
-    location: 'B-Block, Level 4',
-    utilizationScore: 89,
-    lifecycleTimeline: [
-      { state: 'Purchased', date: '2024-01-12', user: 'Procurement System', details: 'Cost: $3499' },
-      { state: 'Available', date: '2024-01-14', user: 'Alex Sterling', details: 'OS pre-loaded, tagged' },
-      { state: 'Allocated', date: '2024-02-01', user: 'Sarah Jenkins', details: 'Assigned as primary development workstation' }
-    ]
-  },
-  {
-    id: '2',
-    name: 'Dell UltraSharp 32" 4K Monitor',
-    tag: 'AST-2024-042',
-    serial: 'SN-DELL324K8',
-    category: 'Peripherals',
-    status: 'Available',
-    department: 'IT',
-    employee: '-',
-    health: 100,
-    image: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=500&h=300&fit=crop',
-    purchaseDate: '2024-03-10',
-    warrantyExpiry: '2026-03-10',
-    cost: 899,
-    location: 'IT Storage, Room 102',
-    utilizationScore: 22,
-    lifecycleTimeline: [
-      { state: 'Purchased', date: '2024-03-10', user: 'Procurement System' },
-      { state: 'Available', date: '2024-03-12', user: 'Alex Sterling', details: 'Placed in IT storage rack' }
-    ]
-  },
-  {
-    id: '3',
-    name: 'iPad Pro 12.9" M2',
-    tag: 'AST-2024-015',
-    serial: 'SN-APLIPD129',
-    category: 'Mobile',
-    status: 'Maintenance',
-    department: 'QA Testing',
-    employee: 'Mark Chen',
-    health: 45,
-    image: 'https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=500&h=300&fit=crop',
-    purchaseDate: '2024-01-15',
-    warrantyExpiry: '2025-01-15',
-    cost: 1099,
-    location: 'QA Lab A',
-    utilizationScore: 78,
-    lifecycleTimeline: [
-      { state: 'Purchased', date: '2024-01-15', user: 'Procurement System' },
-      { state: 'Available', date: '2024-01-18', user: 'Alex Sterling' },
-      { state: 'Allocated', date: '2024-02-05', user: 'Mark Chen', details: 'Assigned for mobile app testbed' },
-      { state: 'Maintenance', date: '2026-07-10', user: 'Mark Chen', details: 'Screen flicker and heavy battery drain reported' }
-    ]
-  },
-  {
-    id: '4',
-    name: 'Herman Miller Aeron Chair',
-    tag: 'AST-2024-102',
-    serial: 'SN-HM-AERON-882',
-    category: 'Furniture',
-    status: 'Allocated',
-    department: 'Operations',
-    employee: 'John Doe',
-    health: 92,
-    image: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=500&h=300&fit=crop',
-    purchaseDate: '2023-11-20',
-    warrantyExpiry: '2035-11-20',
-    cost: 1450,
-    location: 'Headquarters, Room 302',
-    utilizationScore: 95,
-    lifecycleTimeline: [
-      { state: 'Purchased', date: '2023-11-20', user: 'Procurement System' },
-      { state: 'Allocated', date: '2023-11-22', user: 'John Doe', details: 'Office seating setup' }
-    ]
-  },
-  {
-    id: '5',
-    name: 'Sony A7IV Mirrorless Camera',
-    tag: 'AST-2024-088',
-    serial: 'SN-SONY-74892A',
-    category: 'Media',
-    status: 'Transferred',
-    department: 'Marketing',
-    employee: 'Emma Watson',
-    health: 88,
-    image: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=500&h=300&fit=crop',
-    purchaseDate: '2024-04-05',
-    warrantyExpiry: '2026-04-05',
-    cost: 2499,
-    location: 'B-Block, Level 2 (Studio)',
-    utilizationScore: 64,
-    lifecycleTimeline: [
-      { state: 'Purchased', date: '2024-04-05', user: 'Procurement System' },
-      { state: 'Available', date: '2024-04-08', user: 'Alex Sterling' },
-      { state: 'Allocated', date: '2024-04-10', user: 'Emma Watson', details: 'Social media asset creation kit' },
-      { state: 'Transferred', date: '2024-06-15', user: 'Alex Sterling', details: 'Transferred from Design Dept to Marketing Dept' }
-    ]
-  },
-  {
-    id: '6',
-    name: 'iPhone 15 Pro Max 512GB',
-    tag: 'AST-2024-009',
-    serial: 'SN-APL-IPH15PM',
-    category: 'Mobile',
-    status: 'Available',
-    department: 'IT',
-    employee: '-',
-    health: 95,
-    image: 'https://images.unsplash.com/photo-1510557880182-3d4d3cba35a5?w=500&h=300&fit=crop',
-    purchaseDate: '2023-12-01',
-    warrantyExpiry: '2025-12-01',
-    cost: 1399,
-    location: 'IT Vault, Drawer 4',
-    utilizationScore: 10,
-    lifecycleTimeline: [
-      { state: 'Purchased', date: '2023-12-01', user: 'Procurement System' },
-      { state: 'Available', date: '2023-12-03', user: 'Alex Sterling', details: 'Stored in IT Vault' }
-    ]
-  }
-];
-
-const SEED_BOOKINGS: Booking[] = [
-  { id: 'b-1', title: 'Team Sync - HR Dept', resource: 'Conference Room 1', resourceId: 'room-conf-1', employee: 'John Doe', date: '2026-07-12', startTime: '10:00', duration: 2, color: 'bg-primary' },
-  { id: 'b-2', title: 'Client Workshop', resource: 'Boardroom A', resourceId: 'room-board-a', employee: 'Emma Watson', date: '2026-07-12', startTime: '13:00', duration: 3, color: 'bg-[#00A09D]' },
-  { id: 'b-3', title: 'Photography Session', resource: 'Studio X', resourceId: 'room-studio-x', employee: 'Emma Watson', date: '2026-07-12', startTime: '11:00', duration: 1.5, color: 'bg-[#E97C2E]' },
-  { id: 'b-4', title: 'Hardware Audit', resource: 'Dell UltraSharp 32" 4K Monitor', resourceId: '2', employee: 'Alex Sterling', date: '2026-07-12', startTime: '15:00', duration: 2, color: 'bg-slate-800' }
-];
-
-const SEED_MAINTENANCE: MaintenanceTicket[] = [
-  { id: 'M-101', assetId: '3', assetName: 'iPad Pro 12.9" M2', tag: 'AST-2024-015', priority: 'High', status: 'pending', technician: 'Unassigned', description: 'Screen flickering under heat and heavy battery drain.', cost: 180, age: '2 hours ago', createdAt: new Date().toISOString() },
-  { id: 'M-102', assetId: '4', assetName: 'Herman Miller Aeron Chair', tag: 'AST-2024-102', priority: 'Medium', status: 'assigned', technician: 'Sarah Miller', description: 'Lumbar support adjustment mesh is torn.', cost: 75, age: '1 day ago', createdAt: new Date(Date.now() - 86400000).toISOString() },
-  { id: 'M-103', assetId: '5', assetName: 'Sony A7IV Mirrorless Camera', tag: 'AST-2024-088', priority: 'Critical', status: 'in_progress', technician: 'Alex Sterling', description: 'Sensor has visual dust spots and shutter occasionally jams.', cost: 420, age: '3 hours ago', createdAt: new Date(Date.now() - 10800000).toISOString() }
-];
-
-const SEED_AUDITS: AuditCampaign[] = [
-  { id: 'audit-1', title: 'Annual IT Infrastructure Audit 2026', progress: 75, status: 'In Progress', totalItems: 1240, verifiedItems: 930, verifiedAssetIds: ['1', '3', '5'], auditor: 'Alex Sterling', deadline: '2026-08-01', complianceScore: 92 },
-  { id: 'audit-2', title: 'H1 Furniture & Fixtures Verification', progress: 32, status: 'In Progress', totalItems: 850, verifiedItems: 272, verifiedAssetIds: ['4'], auditor: 'Sarah Jenkins', deadline: '2026-09-15', complianceScore: 88 },
-  { id: 'audit-3', title: 'Remote Asset Self-Certification', progress: 98, status: 'Closing Soon', totalItems: 450, verifiedItems: 441, verifiedAssetIds: ['1', '2', '3', '4', '5'], auditor: 'Mark Chen', deadline: '2026-07-20', complianceScore: 97 }
-];
-
-const SEED_TRANSFERS: TransferRequest[] = [
-  {
-    id: 'tr-1',
-    assetId: '1',
-    assetName: 'MacBook Pro 16" M3 Max',
-    tag: 'AST-2024-001',
-    fromDepartment: 'Product Design',
-    toDepartment: 'Operations',
-    fromEmployee: 'Sarah Jenkins',
-    toEmployee: 'John Doe',
-    status: 'Pending Approval',
-    requestedBy: 'Sarah Jenkins',
-    requestedAt: '2026-07-12'
-  }
-];
-
-const SEED_DISCREPANCIES: Discrepancy[] = [
-  { id: 'disc-1', assetId: '1', tag: 'AST-2024-001', assetName: 'MacBook Pro 16" M3 Max', issueType: 'Missing Signature', description: 'Sarah Jenkins has not electronically signed the allocation ledger.', status: 'Open', reportedAt: '2 days ago', reportedBy: 'System Auditor' },
-  { id: 'disc-2', assetId: '2', tag: 'AST-2024-042', assetName: 'Dell UltraSharp 32" 4K Monitor', issueType: 'Location Mismatch', description: 'Detected at Marketing Room instead of IT Storage.', status: 'Open', reportedAt: '5 hours ago', reportedBy: 'Alex Sterling' }
-];
-
-const SEED_NOTIFICATIONS: SystemNotification[] = [
-  { id: 'n-1', title: 'Urgent Service Cycle Required', description: 'iPad Pro 12.9" screen repair approved.', time: '2 mins ago', type: 'warning', read: false },
-  { id: 'n-2', title: 'Asset Transfer Completed', description: 'Sony A7IV transferred from Design to Marketing.', time: '1 hour ago', type: 'success', read: false },
-  { id: 'n-3', title: 'New Audit Campaign', description: 'Annual IT Infrastructure Audit 2026 started.', time: '4 hours ago', type: 'info', read: true }
-];
-
-const SEED_LOGS: ActivityLog[] = [
-  { id: 'log-1', action: 'Asset Registered', details: 'MacBook Pro 16" registered by Alex Sterling', user: 'Alex Sterling', time: '5 days ago', category: 'asset' },
-  { id: 'log-2', action: 'Allocation Approved', details: 'Sarah Jenkins assigned to AST-2024-001', user: 'Procurement System', time: '4 days ago', category: 'asset' },
-  { id: 'log-3', action: 'Maintenance Ticket Created', details: 'Ticket M-101 created for iPad Pro 12.9"', user: 'Mark Chen', time: '2 hours ago', category: 'maintenance' },
-  { id: 'log-4', action: 'Room Reserved', details: 'Conference Room 1 booked for Team Sync', user: 'John Doe', time: '30 mins ago', category: 'booking' }
-];
 
 // ============================================================================
 // 🎛️ REACTIVE LOCAL STORAGE REPLACEMENT
@@ -622,7 +442,7 @@ export const registerAsset = async (assetData: Omit<Asset, 'id' | 'status' | 'ut
     ]
   };
   await addDocument('assets', newAsset, localAssets);
-  await logActivity('Asset Registered', `New asset "${newAsset.name}" registered under tag ${newAsset.tag}`, 'IT Admin', 'asset');
+  await logActivity('Asset Registered', `New asset "${newAsset.name}" registered under tag ${newAsset.tag}`, getCurrentUsername(), 'asset');
   return id;
 };
 

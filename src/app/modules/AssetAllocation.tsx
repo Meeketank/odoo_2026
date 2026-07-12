@@ -29,6 +29,7 @@ import {
   requestTransfer,
   approveTransfer,
   rejectTransfer,
+  getCurrentUsername,
   Asset, 
   Employee,
   TransferRequest
@@ -92,7 +93,7 @@ export const AssetAllocation = () => {
     if (!emp) return;
 
     try {
-      await allocateAsset(selectedAssetId, emp.name, emp.department, 'Alex Sterling');
+      await allocateAsset(selectedAssetId, emp.name, emp.department, getCurrentUsername());
       setSuccessMessage(`Asset successfully allocated to ${emp.name}.`);
       setSelectedAssetId('');
       setSelectedEmpName('');
@@ -109,7 +110,7 @@ export const AssetAllocation = () => {
     if (!transferAssetId || !transferEmpName || !transferDept) return;
 
     try {
-      await requestTransfer(transferAssetId, transferEmpName, transferDept, 'Alex Sterling');
+      await requestTransfer(transferAssetId, transferEmpName, transferDept, getCurrentUsername());
       setSuccessMessage('Transfer request submitted for department approval.');
       setShowTransferModal(false);
       setTransferAssetId('');
@@ -122,7 +123,7 @@ export const AssetAllocation = () => {
 
   const handleApproveTransfer = async (id: string) => {
     try {
-      await approveTransfer(id, 'Alex Sterling');
+      await approveTransfer(id, getCurrentUsername());
       setSuccessMessage('Department transfer approved and asset assigned.');
     } catch (err: any) {
       alert(err.message);
@@ -131,7 +132,7 @@ export const AssetAllocation = () => {
 
   const handleRejectTransfer = async (id: string) => {
     try {
-      await rejectTransfer(id, 'Alex Sterling');
+      await rejectTransfer(id, getCurrentUsername());
       setSuccessMessage('Transfer request has been rejected.');
     } catch (err: any) {
       alert(err.message);
@@ -142,7 +143,7 @@ export const AssetAllocation = () => {
     e.preventDefault();
     try {
       // Return asset
-      await returnAsset(returnAssetId, 'Alex Sterling');
+      await returnAsset(returnAssetId, getCurrentUsername());
       
       // Update asset health based on condition
       const healthImpact = {
@@ -159,7 +160,7 @@ export const AssetAllocation = () => {
         const dateStr = new Date().toISOString().split('T')[0];
         const newTimeline = [
           ...(target.lifecycleTimeline || []),
-          { state: 'Returned', date: dateStr, user: 'Alex Sterling', details: `Condition check: ${returnCondition}. Notes: ${returnNotes}` }
+          { state: 'Returned', date: dateStr, user: getCurrentUsername(), details: `Condition check: ${returnCondition}. Notes: ${returnNotes}` }
         ];
         // In a real app we'd update details inside returnAsset or updateAsset
       }
@@ -188,7 +189,7 @@ export const AssetAllocation = () => {
     if (!emp) return;
 
     try {
-      await allocateAsset(assetId, emp.name, emp.department, 'Alex Sterling');
+      await allocateAsset(assetId, emp.name, emp.department, getCurrentUsername());
       setSuccessMessage(`Dragged & allocated asset to ${emp.name}!`);
     } catch (err: any) {
       alert(err.message);

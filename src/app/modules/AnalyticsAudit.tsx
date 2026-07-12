@@ -40,6 +40,7 @@ import {
   subscribeBookings,
   verifyAssetInAudit, 
   resolveDiscrepancy,
+  getCurrentUsername,
   AuditCampaign, 
   Discrepancy, 
   Asset,
@@ -96,13 +97,9 @@ export const ReportsAnalytics = () => {
 
   // 2. Calculate AREA DATA: Growth or purchase timeline
   const getAreaData = () => {
-    // We mock acquisition trends based on purchase dates or default back to standard intervals
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'];
-    const counts = [1, 2, 4, 3, 5, 4, 6]; // default purchase pattern
-    
-    // Attempt to map real values
+    // Map real user-input values
     const dataMap: Record<string, number> = {
-      '01': 1, '02': 2, '03': 1, '04': 2, '05': 1, '06': 2, '07': 3
+      '01': 0, '02': 0, '03': 0, '04': 0, '05': 0, '06': 0, '07': 0
     };
 
     assets.forEach(a => {
@@ -115,13 +112,13 @@ export const ReportsAnalytics = () => {
     });
 
     return [
-      { name: 'Jan', value: dataMap['01'] || 1 },
-      { name: 'Feb', value: dataMap['02'] || 2 },
-      { name: 'Mar', value: dataMap['03'] || 1 },
-      { name: 'Apr', value: dataMap['04'] || 2 },
-      { name: 'May', value: dataMap['05'] || 1 },
-      { name: 'Jun', value: dataMap['06'] || 2 },
-      { name: 'Jul', value: dataMap['07'] || 3 },
+      { name: 'Jan', value: dataMap['01'] },
+      { name: 'Feb', value: dataMap['02'] },
+      { name: 'Mar', value: dataMap['03'] },
+      { name: 'Apr', value: dataMap['04'] },
+      { name: 'May', value: dataMap['05'] },
+      { name: 'Jun', value: dataMap['06'] },
+      { name: 'Jul', value: dataMap['07'] },
     ];
   };
 
@@ -288,7 +285,7 @@ export const AuditCompliance = () => {
          targetAsset.id, 
          deptMatch, 
          sigPresent, 
-         'Alex Sterling'
+         getCurrentUsername()
       );
 
       setAssetToVerify('');
@@ -300,7 +297,7 @@ export const AuditCompliance = () => {
       e.preventDefault();
       if (!activeDisc || !resolutionText) return;
 
-      await resolveDiscrepancy(activeDisc.id, resolutionText, 'Alex Sterling');
+      await resolveDiscrepancy(activeDisc.id, resolutionText, getCurrentUsername());
       setActiveDisc(null);
       setResolutionText('');
    };

@@ -31,6 +31,7 @@ import {
   cancelBooking, 
   updateMaintenanceStatus,
   updateBookingTime,
+  getCurrentUsername,
   Booking, 
   MaintenanceTicket, 
   Asset, 
@@ -48,7 +49,7 @@ export const ResourceBooking = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [selectedDate, setSelectedDate] = useState('2026-07-12');
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [calView, setCalView] = useState<'day' | 'week' | 'month' | 'timeline'>('day');
   
   // Create Booking Modal
@@ -109,7 +110,7 @@ export const ResourceBooking = () => {
         startTime,
         duration: Number(duration),
         color
-      }, 'Alex Sterling');
+      }, getCurrentUsername());
 
       // Reset Form
       setTitle('');
@@ -121,7 +122,7 @@ export const ResourceBooking = () => {
 
   const handleCancelBooking = async (id: string, bTitle: string) => {
     if (confirm(`Are you sure you want to cancel the booking for "${bTitle}"?`)) {
-      await cancelBooking(id, bTitle, 'Alex Sterling');
+      await cancelBooking(id, bTitle, getCurrentUsername());
     }
   };
 
@@ -130,7 +131,7 @@ export const ResourceBooking = () => {
     const id = e.dataTransfer.getData('text/plain');
     if (!id) return;
     try {
-      await updateBookingTime(id, `${hour}:00`, 'Alex Sterling');
+      await updateBookingTime(id, `${hour}:00`, getCurrentUsername());
     } catch(err: any) {
       alert(err.message);
     }
@@ -318,13 +319,18 @@ export const ResourceBooking = () => {
           {calView === 'week' && (
             <div className="grid grid-cols-7 gap-4 bg-white p-6 border border-border rounded-[32px] shadow-sm">
               {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => {
-                const targetDayDate = `2026-07-${12 + i - 6}`; // week around 12th
+                const today = new Date();
+                const currentDay = today.getDay(); // 0 is Sun, 1 is Mon
+                const mondayDiff = currentDay === 0 ? -6 : 1 - currentDay;
+                const targetDay = new Date(today);
+                targetDay.setDate(today.getDate() + mondayDiff + i);
+                const targetDayDate = targetDay.toISOString().split('T')[0];
                 const weekBookings = bookings.filter(b => b.date === targetDayDate);
                 return (
                   <div key={day} className="space-y-4">
                     <div className="text-center p-2 border-b border-border bg-slate-50 rounded-xl">
                       <p className="text-xs font-black text-slate-800">{day}</p>
-                      <p className="text-[10px] text-muted-foreground">{12 + i - 6} Jul</p>
+                      <p className="text-[10px] text-muted-foreground">{targetDay.getDate()} {targetDay.toLocaleString('default', { month: 'short' })}</p>
                     </div>
                     <div className="space-y-2 min-h-[300px]">
                       {weekBookings.map(b => (
@@ -348,7 +354,10 @@ export const ResourceBooking = () => {
               <div className="grid grid-cols-7 gap-2.5">
                 {Array.from({ length: 31 }, (_, idx) => {
                   const dayNum = idx + 1;
-                  const dateStr = `2026-07-${dayNum < 10 ? '0' + dayNum : dayNum}`;
+                  const today = new Date();
+                  const year = today.getFullYear();
+                  const month = String(today.getMonth() + 1).padStart(2, '0');
+                  const dateStr = `${year}-${month}-${dayNum < 10 ? '0' + dayNum : dayNum}`;
                   const dayBookings = bookings.filter(b => b.date === dateStr);
                   return (
                     <div key={idx} className="border border-border rounded-xl p-2 min-h-[75px] hover:bg-slate-50 flex flex-col justify-between text-left">
@@ -573,7 +582,7 @@ export const MaintenanceWorkflow = () => {
 
    const handleStatusTransition = async (id: string, nextStatus: MaintenanceTicket['status'], tech: string) => {
       const activeTech = tech || 'Unassigned';
-      await updateMaintenanceStatus(id, nextStatus, activeTech, 'Alex Sterling');
+      await updateMaintenanceStatus(id, nextStatus, activeTech, getCurrentUsername());
       setActiveTicket(null);
    };
 
